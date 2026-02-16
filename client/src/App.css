@@ -1,0 +1,8 @@
+.App {
+  min-height: 100vh;
+  display: flex;
+  background-image: url("https://wallpaperaccess.com/full/1285952.jpg");
+  background-size: cover;
+  background-position: center;
+  color: black;
+}

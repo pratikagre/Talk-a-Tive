@@ -1,0 +1,110 @@
+const express = require('express');
+const http = require('http');
+const { Server } = require('socket.io');
+const mongoose = require('mongoose');
+const cors = require('cors');
+const dotenv = require('dotenv');
+const cookieParser = require('cookie-parser');
+
+const connectDB = require("./config/db");
+const userRoutes = require("./routes/auth.routes");
+const { notFound, errorHandler } = require("./middlewares/error.middleware");
+
+dotenv.config();
+connectDB();
+
+const app = express();
+const server = http.createServer(app);
+
+// Middleware
+app.use(cors({
+    origin: process.env.CLIENT_URL || "http://localhost:5173",
+    credentials: true,
+    methods: ["GET", "POST", "PUT", "DELETE"],
+}));
+app.use(express.json());
+app.use(cookieParser());
+
+// Routes
+app.use("/api/user", userRoutes);
+app.use("/api/chat", require("./routes/chat.routes"));
+app.use("/api/message", require("./routes/message.routes"));
+app.use("/api/upload", require("./routes/upload.routes"));
+
+const path = require("path");
+app.use("/uploads", express.static(path.join(__dirname, "../uploads")));
+
+
+
+// Root Route
+app.get('/', (req, res) => {
+    res.send('API is running...');
+});
+
+// Create Socket using helper reference if needed, or keep inline for now in main server file
+const io = new Server(server, {
+    pingTimeout: 60000,
+    cors: {
+        origin: process.env.CLIENT_URL || "http://localhost:5173",
+        methods: ["GET", "POST"]
+    }
+});
+
+io.on("connection", (socket) => {
+    console.log("Connected to socket.io");
+
+    socket.on("setup", (userData) => {
+        socket.join(userData._id);
+        socket.emit("connected");
+    });
+
+    socket.on("join chat", (room) => {
+        socket.join(room);
+        console.log("User Joined Room: " + room);
+    });
+
+    socket.on("typing", (room) => socket.in(room).emit("typing"));
+    socket.on("stop typing", (room) => socket.in(room).emit("stop typing"));
+
+    socket.on("new message", (newMessageRecieved) => {
+        var chat = newMessageRecieved.chat;
+
+        if (!chat.users) return console.log("chat.users not defined");
+
+        chat.users.forEach((user) => {
+            if (user._id == newMessageRecieved.sender._id) return;
+
+            socket.in(user._id).emit("message received", newMessageRecieved);
+        });
+    });
+
+    socket.on("disconnect", () => {
+        console.log("USER DISCONNECTED");
+        socket.broadcast.emit("callEnded");
+    });
+
+    // WebRTC Signaling
+    socket.on("callUser", (data) => {
+        socket.to(data.userToCall).emit("callUser", {
+            signal: data.signalData,
+            from: data.from,
+            name: data.name,
+        });
+    });
+
+    socket.on("answerCall", (data) => {
+        socket.to(data.to).emit("callAccepted", data.signal);
+    });
+
+});
+
+// Error Handling
+app.use(notFound);
+app.use(errorHandler);
+
+
+// Start Server
+const PORT = process.env.PORT || 5000;
+server.listen(PORT, () => {
+    console.log(`Server running on port ${PORT}`);
+});
