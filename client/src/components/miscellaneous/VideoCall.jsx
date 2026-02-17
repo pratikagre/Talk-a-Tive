@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import Peer from "simple-peer";
 import io from "socket.io-client";
-import { ChatState } from "../Context/ChatProvider";
+import { ChatState } from "../../Context/ChatProvider";
 import { FaPhone, FaPhoneSlash, FaVideo, FaVideoSlash } from "react-icons/fa";
 
 const ENDPOINT = import.meta.env.VITE_API_URL || "http://localhost:5000"; // Should come from env

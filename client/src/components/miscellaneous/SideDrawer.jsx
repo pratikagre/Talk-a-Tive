@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { ChatState } from "../Context/ChatProvider";
+import { ChatState } from "../../Context/ChatProvider";
 import { useNavigate } from "react-router-dom";
 import axios from "../../config/axios";
 import { getSender } from "../MyChats";
