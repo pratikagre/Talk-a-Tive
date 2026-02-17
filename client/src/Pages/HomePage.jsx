@@ -1,14 +1,3 @@
-import {
-    Box,
-    Container,
-    Tab,
-    TabList,
-    TabPanel,
-    TabPanels,
-    Tabs,
-    Text,
-} from "@chakra-ui/react"; // Wait, user asked for Tailwind. I shouldn't use Chakra UI unless necessary, but the snippet used Chakra. I should rewrite using Tailwind.
-
 import React, { useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import Login from "../components/Authentication/Login";
