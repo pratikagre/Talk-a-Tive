@@ -44,11 +44,7 @@ const allMessages = asyncHandler(async (req, res) => {
         chat: { ...msg.chat, _id: msg.chat_id }
     }));
 
-    res.json({
-        messages: formattedMessages.reverse(),
-        page,
-        pages: Math.ceil(count / pageSize)
-    });
+    res.json(formattedMessages.reverse());
 });
 
 //@description     Create New Message
