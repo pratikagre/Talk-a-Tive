@@ -140,70 +140,84 @@ const UpdateGroupChatModal = ({ fetchAgain, setFetchAgain, fetchMessages }) => {
                 <FaEye />
             </button>
 
+            {/* Clean Modal Implementation */}
             {isOpen && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50">
-                    <div className="bg-white p-6 rounded-lg w-full max-w-md">
-                        <div className="flex justify-between items-center mb-4">
-                            <h2 className="text-2xl font-sans">{selectedChat.chatName}</h2>
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm transition-opacity">
+                    <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl transform transition-transform scale-100 overflow-hidden">
+                        <div className="bg-gradient-to-r from-purple-600 to-blue-500 p-4 flex justify-between items-center text-white">
+                            <h2 className="text-xl font-bold font-sans tracking-wide">{selectedChat.chatName}</h2>
                             <button
                                 onClick={() => setIsOpen(false)}
-                                className="text-gray-500 hover:text-gray-700"
+                                className="text-white/80 hover:text-white hover:bg-white/20 rounded-full p-1 transition-all"
                             >
-                                X
+                                <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                                </svg>
                             </button>
                         </div>
 
-                        <div className="flex w-full flex-wrap pb-3">
-                            {selectedChat.users.map((u) => (
-                                <UserBadgeItem
-                                    key={u._id}
-                                    user={u}
-                                    admin={selectedChat.groupAdmin}
-                                    handleFunction={() => handleRemove(u)}
+                        <div className="p-6 flex flex-col gap-4">
+                            <div className="flex w-full flex-wrap gap-2 pb-2">
+                                {selectedChat.users.map((u) => (
+                                    <UserBadgeItem
+                                        key={u._id}
+                                        user={u}
+                                        admin={selectedChat.groupAdmin}
+                                        handleFunction={() => handleRemove(u)}
+                                    />
+                                ))}
+                            </div>
+
+                            <div className="flex gap-2">
+                                <input
+                                    placeholder="Rename Chat"
+                                    className="flex-1 bg-gray-50 border border-gray-200 text-gray-900 text-sm rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent p-3 transition-all outline-none"
+                                    value={groupChatName}
+                                    onChange={(e) => setGroupChatName(e.target.value)}
                                 />
-                            ))}
+                                <button
+                                    className="bg-teal-500 hover:bg-teal-600 text-white px-4 py-2 rounded-lg font-medium shadow-sm transition-transform active:scale-95 disabled:opacity-50"
+                                    onClick={handleRename}
+                                    disabled={renameloading}
+                                >
+                                    {renameloading ? "..." : "Update"}
+                                </button>
+                            </div>
+
+                            <div className="flex flex-col gap-1">
+                                <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider ml-1">Add Member</label>
+                                <input
+                                    placeholder="Search users..."
+                                    className="bg-gray-50 border border-gray-200 text-gray-900 text-sm rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent block w-full p-3 transition-all outline-none"
+                                    onChange={(e) => handleSearch(e.target.value)}
+                                />
+                            </div>
+
+                            {loading ? (
+                                <div className="flex justify-center py-2">
+                                    <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-purple-600"></div>
+                                </div>
+                            ) : (
+                                <div className="max-h-40 overflow-y-auto custom-scrollbar border border-gray-100 rounded-lg">
+                                    {searchResult?.slice(0, 4).map((user) => (
+                                        <div key={user._id} className="border-b last:border-0 border-gray-50">
+                                            <UserListItem
+                                                key={user._id}
+                                                user={user}
+                                                handleFunction={() => handleAddUser(user)}
+                                            />
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
                         </div>
 
-                        <div className="flex gap-2 mb-3">
-                            <input
-                                placeholder="Chat Name"
-                                className="border p-2 rounded w-full"
-                                value={groupChatName}
-                                onChange={(e) => setGroupChatName(e.target.value)}
-                            />
-                            <button
-                                className="bg-teal-500 text-white px-4 py-2 rounded hover:bg-teal-600"
-                                onClick={handleRename}
-                                disabled={renameloading}
-                            >
-                                Update
-                            </button>
-                        </div>
-
-                        <input
-                            placeholder="Add User to group"
-                            className="border p-2 rounded w-full mb-1"
-                            onChange={(e) => handleSearch(e.target.value)}
-                        />
-
-                        {loading ? (
-                            <div className="text-center">Loading...</div>
-                        ) : (
-                            searchResult?.slice(0, 4).map((user) => (
-                                <UserListItem
-                                    key={user._id}
-                                    user={user}
-                                    handleFunction={() => handleAddUser(user)}
-                                />
-                            ))
-                        )}
-
-                        <div className="mt-4 flex justify-end">
+                        <div className="p-4 border-t border-gray-100 flex justify-end bg-gray-50">
                             <button
                                 onClick={() => handleRemove(user)}
-                                className="bg-red-500 text-white px-4 py-2 rounded hover:bg-red-600"
+                                className="bg-red-500 hover:bg-red-600 text-white font-medium py-2 px-6 rounded-lg shadow-md hover:shadow-lg transform transition active:scale-95 flex items-center gap-2"
                             >
-                                Leave Group
+                                <i className="fas fa-sign-out-alt"></i> Leave Group
                             </button>
                         </div>
                     </div>

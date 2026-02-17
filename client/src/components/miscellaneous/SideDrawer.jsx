@@ -77,7 +77,6 @@ function SideDrawer() {
     };
 
     return (
-    return (
         <>
             <div className="flex justify-between items-center bg-white w-full px-5 py-3 border-b border-gray-200 shadow-sm transition-all">
                 <button
