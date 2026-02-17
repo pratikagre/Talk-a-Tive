@@ -106,6 +106,10 @@ const fetchChats = asyncHandler(async (req, res) => {
 
     const chatIds = userChatIds.map(c => c.chat_id);
 
+    if (chatIds.length === 0) {
+        return res.status(200).send([]);
+    }
+
     const { data: chats, error } = await supabase
         .from('chats')
         .select(`

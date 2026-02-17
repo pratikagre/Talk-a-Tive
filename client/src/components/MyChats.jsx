@@ -17,7 +17,7 @@ const MyChats = ({ fetchAgain }) => {
             const { data } = await axios.get("/api/chat", config);
             setChats(data);
         } catch (error) {
-            alert("Failed to Load the chats");
+            alert("Failed to Load the chats: " + (error.response?.data?.message || error.message));
         }
     };
 
