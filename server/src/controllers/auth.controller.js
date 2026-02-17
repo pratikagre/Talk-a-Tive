@@ -1,6 +1,7 @@
 const asyncHandler = require("express-async-handler");
-const User = require("../models/User");
+const supabase = require("../config/supabaseClient");
 const generateToken = require("../config/generateToken");
+const bcrypt = require("bcryptjs");
 
 //@description     Register new user
 //@route           POST /api/user
@@ -13,28 +14,48 @@ const registerUser = asyncHandler(async (req, res) => {
         throw new Error("Please Enter all the Feilds");
     }
 
-    const userExists = await User.findOne({ email });
+    // Check if user exists
+    const { data: userExists } = await supabase
+        .from('users')
+        .select('email')
+        .eq('email', email)
+        .single();
 
     if (userExists) {
         res.status(400);
         throw new Error("User already exists");
     }
 
-    const user = await User.create({
-        name,
-        email,
-        password,
-        pic,
-    });
+    // Hash password
+    const salt = await bcrypt.genSalt(10);
+    const hashedPassword = await bcrypt.hash(password, salt);
+
+    // Create user
+    const { data: user, error } = await supabase
+        .from('users')
+        .insert([{
+            name,
+            email,
+            password: hashedPassword,
+            pic
+        }])
+        .select()
+        .single();
+
+    if (error) {
+        console.error(error);
+        res.status(400);
+        throw new Error("Failed to create user");
+    }
 
     if (user) {
         res.status(201).json({
-            _id: user._id,
+            _id: user.id, // Frontend expects _id
             name: user.name,
             email: user.email,
-            isAdmin: user.isAdmin,
+            isAdmin: user.is_admin,
             pic: user.pic,
-            token: generateToken(user._id),
+            token: generateToken(user.id),
         });
     } else {
         res.status(400);
@@ -48,16 +69,20 @@ const registerUser = asyncHandler(async (req, res) => {
 const authUser = asyncHandler(async (req, res) => {
     const { email, password } = req.body;
 
-    const user = await User.findOne({ email });
+    const { data: user } = await supabase
+        .from('users')
+        .select('*')
+        .eq('email', email)
+        .single();
 
-    if (user && (await user.matchPassword(password))) {
+    if (user && (await bcrypt.compare(password, user.password))) {
         res.json({
-            _id: user._id,
+            _id: user.id,
             name: user.name,
             email: user.email,
-            isAdmin: user.isAdmin,
+            isAdmin: user.is_admin,
             pic: user.pic,
-            token: generateToken(user._id),
+            token: generateToken(user.id),
         });
     } else {
         res.status(401);
@@ -69,17 +94,23 @@ const authUser = asyncHandler(async (req, res) => {
 //@route           GET /api/user?search=
 //@access          Public
 const allUsers = asyncHandler(async (req, res) => {
-    const keyword = req.query.search
-        ? {
-            $or: [
-                { name: { $regex: req.query.search, $options: "i" } },
-                { email: { $regex: req.query.search, $options: "i" } },
-            ],
-        }
-        : {};
+    let query = supabase.from('users').select('id, name, email, pic').neq('id', req.user.id);
 
-    const users = await User.find(keyword).find({ _id: { $ne: req.user._id } });
-    res.send(users);
+    if (req.query.search) {
+        query = query.or(`name.ilike.%${req.query.search}%,email.ilike.%${req.query.search}%`);
+    }
+
+    const { data: users, error } = await query;
+
+    if (error) throw new Error(error.message);
+
+    // Transform _id for frontend
+    const formattedUsers = users.map(u => ({
+        ...u,
+        _id: u.id
+    }));
+
+    res.send(formattedUsers);
 });
 
 module.exports = { registerUser, authUser, allUsers };

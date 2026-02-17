@@ -1,37 +1,54 @@
 const asyncHandler = require("express-async-handler");
-const Message = require("../models/Message");
-const User = require("../models/User");
-const Chat = require("../models/Chat");
+const supabase = require("../config/supabaseClient");
 
 //@description     Get all Messages
 //@route           GET /api/message/:chatId
 //@access          Protected
 const allMessages = asyncHandler(async (req, res) => {
-    try {
-        const pageSize = 20; // Default page size
-        const page = Number(req.query.pageNumber) || 1;
+    const { chatId } = req.params;
+    const page = Number(req.query.pageNumber) || 1;
+    const pageSize = 20;
 
-        // Search functionality
-        const keyword = req.query.search
-            ? {
-                content: { $regex: req.query.search, $options: "i" },
-            }
-            : {};
+    // Search query
+    let query = supabase
+        .from('messages')
+        .select(`
+            *,
+            sender:users(name, pic, email),
+            chat:chats(*)
+        `, { count: 'exact' })
+        .eq('chat_id', chatId);
 
-        const count = await Message.countDocuments({ chat: req.params.chatId, ...keyword });
-        const messages = await Message.find({ chat: req.params.chatId, ...keyword })
-            .populate("sender", "name pic email")
-            .populate("chat")
-            .sort({ createdAt: -1 }) // Get latest first for pagination
-            .limit(pageSize)
-            .skip(pageSize * (page - 1));
+    if (req.query.search) {
+        query = query.ilike('content', `%${req.query.search}%`);
+    }
 
-        // Reverse to show in correct order
-        res.json({ messages: messages.reverse(), page, pages: Math.ceil(count / pageSize) });
-    } catch (error) {
+    // Pagination
+    const from = (page - 1) * pageSize;
+    const to = from + pageSize - 1;
+
+    const { data: messages, count, error } = await query
+        .order('created_at', { ascending: false })
+        .range(from, to);
+
+    if (error) {
         res.status(400);
         throw new Error(error.message);
     }
+
+    // Transform for frontend
+    const formattedMessages = messages.map(msg => ({
+        ...msg,
+        _id: msg.id,
+        sender: { ...msg.sender, _id: msg.sender_id },
+        chat: { ...msg.chat, _id: msg.chat_id }
+    }));
+
+    res.json({
+        messages: formattedMessages.reverse(),
+        page,
+        pages: Math.ceil(count / pageSize)
+    });
 });
 
 //@description     Create New Message
@@ -45,57 +62,88 @@ const sendMessage = asyncHandler(async (req, res) => {
         return res.sendStatus(400);
     }
 
-    var newMessage = {
-        sender: req.user._id,
+    const newMessage = {
+        sender_id: req.user.id,
         content: content,
-        chat: chatId,
-        fileUrl: fileUrl,
-        fileType: fileType
+        chat_id: chatId,
+        file_url: fileUrl,
+        file_type: fileType
     };
 
-    try {
-        var message = await Message.create(newMessage);
+    const { data: message, error } = await supabase
+        .from('messages')
+        .insert([newMessage])
+        .select(`
+            *,
+            sender:users(name, pic, email),
+            chat:chats(*)
+        `)
+        .single();
 
-        message = await message.populate("sender", "name pic");
-        message = await message.populate("chat");
-        message = await User.populate(message, {
-            path: "chat.users",
-            select: "name pic email",
-        });
-
-        await Chat.findByIdAndUpdate(req.body.chatId, { latestMessage: message });
-
-        res.json(message);
-    } catch (error) {
+    if (error) {
         res.status(400);
         throw new Error(error.message);
     }
+
+    // Populate chat users for socket.io logic (frontend expects 'chat.users')
+    const { data: chatUsers } = await supabase
+        .from('chat_users')
+        .select('user_id, users(name, pic, email)')
+        .eq('chat_id', chatId);
+
+    const fullMessage = {
+        ...message,
+        _id: message.id,
+        sender: { ...message.sender, _id: message.sender_id },
+        chat: {
+            ...message.chat,
+            _id: message.chat_id,
+            users: chatUsers.map(u => ({ ...u.users, _id: u.user_id }))
+        }
+    };
+
+    // Update latest message in chats table (using separate update as trigger logic is complex for now)
+    await supabase
+        .from('chats')
+        .update({ latest_message_id: message.id })
+        .eq('id', chatId);
+
+    res.json(fullMessage);
 });
 
 //@description     Delete Message
 //@route           DELETE /api/message/:id
 //@access          Protected
 const deleteMessage = asyncHandler(async (req, res) => {
-    try {
-        const message = await Message.findById(req.params.id);
+    // First fetch message to check ownership
+    const { data: message, error: fetchError } = await supabase
+        .from('messages')
+        .select('*')
+        .eq('id', req.params.id)
+        .single();
 
-        if (!message) {
-            res.status(404);
-            throw new Error("Message not found");
-        }
-
-        // Check if user is sender
-        if (message.sender.toString() !== req.user._id.toString()) {
-            res.status(401);
-            throw new Error("You can't delete this message");
-        }
-
-        await Message.findByIdAndDelete(req.params.id);
-        res.json({ message: "Message Removed" });
-    } catch (error) {
-        res.status(400);
-        throw new Error(error.message);
+    if (fetchError || !message) {
+        res.status(404);
+        throw new Error("Message not found");
     }
+
+    // Check if user is sender
+    if (message.sender_id !== req.user.id) {
+        res.status(401);
+        throw new Error("You can't delete this message");
+    }
+
+    const { error: deleteError } = await supabase
+        .from('messages')
+        .delete()
+        .eq('id', req.params.id);
+
+    if (deleteError) {
+        res.status(400);
+        throw new Error(deleteError.message);
+    }
+
+    res.json({ message: "Message Removed" });
 });
 
 module.exports = { allMessages, sendMessage, deleteMessage };

@@ -1,6 +1,5 @@
 const asyncHandler = require("express-async-handler");
-const Chat = require("../models/Chat");
-const User = require("../models/User");
+const supabase = require("../config/supabaseClient");
 
 //@description     Create or fetch One to One Chat
 //@route           POST /api/chat
@@ -13,41 +12,85 @@ const accessChat = asyncHandler(async (req, res) => {
         return res.sendStatus(400);
     }
 
-    var isChat = await Chat.find({
-        isGroupChat: false,
-        $and: [
-            { users: { $elemMatch: { $eq: req.user._id } } },
-            { users: { $elemMatch: { $eq: userId } } },
-        ],
-    })
-        .populate("users", "-password")
-        .populate("latestMessage");
+    // Check if chat exists
+    // Complex query in SQL: 
+    // Select chats where is_group_chat is false AND exists in chat_users for both req.user.id and userId
 
-    isChat = await User.populate(isChat, {
-        path: "latestMessage.sender",
-        select: "name pic email",
-    });
+    // First, find chat_ids common to both users
+    const { data: user1Chats, error: err1 } = await supabase
+        .from('chat_users')
+        .select('chat_id')
+        .eq('user_id', req.user.id);
 
-    if (isChat.length > 0) {
-        res.send(isChat[0]);
+    if (err1) throw new Error(err1.message);
+
+    const { data: user2Chats, error: err2 } = await supabase
+        .from('chat_users')
+        .select('chat_id')
+        .eq('user_id', userId);
+
+    if (err2) throw new Error(err2.message);
+
+    const user1ChatIds = user1Chats.map(c => c.chat_id);
+    const commonChatIds = user2Chats
+        .map(c => c.chat_id)
+        .filter(id => user1ChatIds.includes(id));
+
+    // Now filter for non-group chats
+    let existingChat = null;
+
+    if (commonChatIds.length > 0) {
+        const { data, error } = await supabase
+            .from('chats')
+            .select(`
+                *,
+                users:chat_users(user_id, users(name, pic, email)),
+                latestMessage:messages(*)
+            `)
+            .in('id', commonChatIds)
+            .eq('is_group_chat', false)
+            .limit(1)
+            .single(); // Might return null if no non-group chat found in common ones
+
+        if (data) existingChat = data;
+    }
+
+    if (existingChat) {
+        // Transform structure to match Mongoose .populate() format for frontend compatibility
+        existingChat.users = existingChat.users.map(u => ({ ...u.users, _id: u.user_id })); // Flatten structure
+        res.send(existingChat);
     } else {
-        var chatData = {
-            chatName: "sender",
-            isGroupChat: false,
-            users: [req.user._id, userId],
-        };
+        // Create new chat
+        const { data: newChat, error: createError } = await supabase
+            .from('chats')
+            .insert([{ chat_name: "sender", is_group_chat: false }])
+            .select()
+            .single();
 
-        try {
-            const createdChat = await Chat.create(chatData);
-            const FullChat = await Chat.findOne({ _id: createdChat._id }).populate(
-                "users",
-                "-password"
-            );
-            res.status(200).send(FullChat);
-        } catch (error) {
-            res.status(400);
-            throw new Error(error.message);
-        }
+        if (createError) throw new Error(createError.message);
+
+        // Add users to chat
+        const { error: joinError } = await supabase
+            .from('chat_users')
+            .insert([
+                { chat_id: newChat.id, user_id: req.user.id },
+                { chat_id: newChat.id, user_id: userId }
+            ]);
+
+        if (joinError) throw new Error(joinError.message);
+
+        // Fetch full chat to return
+        const { data: fullChat } = await supabase
+            .from('chats')
+            .select(`
+                *,
+                users:chat_users(user_id, users(name, pic, email))
+            `)
+            .eq('id', newChat.id)
+            .single();
+
+        fullChat.users = fullChat.users.map(u => ({ ...u.users, _id: u.user_id }));
+        res.status(200).send(fullChat);
     }
 });
 
@@ -55,23 +98,35 @@ const accessChat = asyncHandler(async (req, res) => {
 //@route           GET /api/chat
 //@access          Protected
 const fetchChats = asyncHandler(async (req, res) => {
-    try {
-        Chat.find({ users: { $elemMatch: { $eq: req.user._id } } })
-            .populate("users", "-password")
-            .populate("groupAdmin", "-password")
-            .populate("latestMessage")
-            .sort({ updatedAt: -1 })
-            .then(async (results) => {
-                results = await User.populate(results, {
-                    path: "latestMessage.sender",
-                    select: "name pic email",
-                });
-                res.status(200).send(results);
-            });
-    } catch (error) {
-        res.status(400);
-        throw new Error(error.message);
-    }
+    // Get all chat_ids for user
+    const { data: userChatIds } = await supabase
+        .from('chat_users')
+        .select('chat_id')
+        .eq('user_id', req.user.id);
+
+    const chatIds = userChatIds.map(c => c.chat_id);
+
+    const { data: chats, error } = await supabase
+        .from('chats')
+        .select(`
+            *,
+            users:chat_users(user_id, users(name, pic, email)),
+            groupAdmin:users!group_admin_id(name, pic, email),
+            latestMessage:messages(*)
+        `)
+        .in('id', chatIds)
+        .order('created_at', { ascending: false });
+
+    if (error) throw new Error(error.message);
+
+    // Transform for frontend
+    const formattedChats = chats.map(chat => ({
+        ...chat,
+        users: chat.users.map(u => ({ ...u.users, _id: u.user_id })),
+        _id: chat.id // Frontend expects _id
+    }));
+
+    res.status(200).send(formattedChats);
 });
 
 //@description     Create New Group Chat
@@ -90,25 +145,48 @@ const createGroupChat = asyncHandler(async (req, res) => {
             .send("More than 2 users are required to form a group chat");
     }
 
-    users.push(req.user);
+    // Create Group Chat
+    const { data: groupChat, error: createError } = await supabase
+        .from('chats')
+        .insert([{
+            chat_name: req.body.name,
+            is_group_chat: true,
+            group_admin_id: req.user.id
+        }])
+        .select()
+        .single();
 
-    try {
-        const groupChat = await Chat.create({
-            chatName: req.body.name,
-            users: users,
-            isGroupChat: true,
-            groupAdmin: req.user,
-        });
+    if (createError) throw new Error(createError.message);
 
-        const fullGroupChat = await Chat.findOne({ _id: groupChat._id })
-            .populate("users", "-password")
-            .populate("groupAdmin", "-password");
+    // Prepare batch insert for chat_users
+    // Add admin and all selected users
+    const chatUsers = [
+        { chat_id: groupChat.id, user_id: req.user.id },
+        ...users.map(u => ({ chat_id: groupChat.id, user_id: u._id || u.id }))
+        // Using u.id assuming frontend sends user objects with id
+    ];
 
-        res.status(200).json(fullGroupChat);
-    } catch (error) {
-        res.status(400);
-        throw new Error(error.message);
-    }
+    const { error: joinError } = await supabase
+        .from('chat_users')
+        .insert(chatUsers);
+
+    if (joinError) throw new Error(joinError.message);
+
+    // Fetch full
+    const { data: fullGroupChat } = await supabase
+        .from('chats')
+        .select(`
+            *,
+            users:chat_users(user_id, users(name, pic, email)),
+            groupAdmin:users!group_admin_id(name, pic, email)
+        `)
+        .eq('id', groupChat.id)
+        .single();
+
+    fullGroupChat.users = fullGroupChat.users.map(u => ({ ...u.users, _id: u.user_id }));
+    fullGroupChat._id = fullGroupChat.id;
+
+    res.status(200).json(fullGroupChat);
 });
 
 //@description     Rename Group
@@ -117,22 +195,23 @@ const createGroupChat = asyncHandler(async (req, res) => {
 const renameGroup = asyncHandler(async (req, res) => {
     const { chatId, chatName } = req.body;
 
-    const updatedChat = await Chat.findByIdAndUpdate(
-        chatId,
-        {
-            chatName: chatName,
-        },
-        {
-            new: true,
-        }
-    )
-        .populate("users", "-password")
-        .populate("groupAdmin", "-password");
+    const { data: updatedChat, error } = await supabase
+        .from('chats')
+        .update({ chat_name: chatName })
+        .eq('id', chatId)
+        .select(`
+            *,
+            users:chat_users(user_id, users(name, pic, email)),
+            groupAdmin:users!group_admin_id(name, pic, email)
+        `)
+        .single();
 
-    if (!updatedChat) {
+    if (error) {
         res.status(404);
         throw new Error("Chat Not Found");
     } else {
+        updatedChat.users = updatedChat.users.map(u => ({ ...u.users, _id: u.user_id }));
+        updatedChat._id = updatedChat.id;
         res.json(updatedChat);
     }
 });
@@ -143,26 +222,28 @@ const renameGroup = asyncHandler(async (req, res) => {
 const addToGroup = asyncHandler(async (req, res) => {
     const { chatId, userId } = req.body;
 
-    // check if the requester is admin (optional enhancement)
+    const { error } = await supabase
+        .from('chat_users')
+        .insert([{ chat_id: chatId, user_id: userId }]);
 
-    const added = await Chat.findByIdAndUpdate(
-        chatId,
-        {
-            $push: { users: userId },
-        },
-        {
-            new: true,
-        }
-    )
-        .populate("users", "-password")
-        .populate("groupAdmin", "-password");
-
-    if (!added) {
+    if (error) {
         res.status(404);
-        throw new Error("Chat Not Found");
-    } else {
-        res.json(added);
+        throw new Error("Chat Not Found or User already added");
     }
+
+    const { data: added } = await supabase
+        .from('chats')
+        .select(`
+            *,
+            users:chat_users(user_id, users(name, pic, email)),
+            groupAdmin:users!group_admin_id(name, pic, email)
+        `)
+        .eq('id', chatId)
+        .single();
+
+    added.users = added.users.map(u => ({ ...u.users, _id: u.user_id }));
+    added._id = added.id;
+    res.json(added);
 });
 
 //@description     Remove user from Group
@@ -171,26 +252,30 @@ const addToGroup = asyncHandler(async (req, res) => {
 const removeFromGroup = asyncHandler(async (req, res) => {
     const { chatId, userId } = req.body;
 
-    // check if the requester is admin (optional enhancement)
+    const { error } = await supabase
+        .from('chat_users')
+        .delete()
+        .eq('chat_id', chatId)
+        .eq('user_id', userId);
 
-    const removed = await Chat.findByIdAndUpdate(
-        chatId,
-        {
-            $pull: { users: userId },
-        },
-        {
-            new: true,
-        }
-    )
-        .populate("users", "-password")
-        .populate("groupAdmin", "-password");
-
-    if (!removed) {
+    if (error) {
         res.status(404);
         throw new Error("Chat Not Found");
-    } else {
-        res.json(removed);
     }
+
+    const { data: removed } = await supabase
+        .from('chats')
+        .select(`
+            *,
+            users:chat_users(user_id, users(name, pic, email)),
+            groupAdmin:users!group_admin_id(name, pic, email)
+        `)
+        .eq('id', chatId)
+        .single();
+
+    removed.users = removed.users.map(u => ({ ...u.users, _id: u.user_id }));
+    removed._id = removed.id;
+    res.json(removed);
 });
 
 module.exports = {
