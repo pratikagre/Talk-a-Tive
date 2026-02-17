@@ -16,7 +16,7 @@ const server = http.createServer(app);
 
 // Middleware
 app.use(cors({
-    origin: process.env.CLIENT_URL || "http://localhost:5173",
+    origin: [process.env.CLIENT_URL, "http://localhost:5173", "https://talk-a-tive-eta.vercel.app", "https://talk-a-tive-9cec.vercel.app"],
     credentials: true,
     methods: ["GET", "POST", "PUT", "DELETE"],
 }));
@@ -43,7 +43,7 @@ app.get('/', (req, res) => {
 const io = new Server(server, {
     pingTimeout: 60000,
     cors: {
-        origin: process.env.CLIENT_URL || "http://localhost:5173",
+        origin: [process.env.CLIENT_URL, "http://localhost:5173", "https://talk-a-tive-eta.vercel.app", "https://talk-a-tive-9cec.vercel.app"],
         methods: ["GET", "POST"]
     }
 });
