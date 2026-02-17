@@ -58,6 +58,7 @@ const accessChat = asyncHandler(async (req, res) => {
     if (existingChat) {
         // Transform structure to match Mongoose .populate() format for frontend compatibility
         existingChat.users = existingChat.users.map(u => ({ ...u.users, _id: u.user_id })); // Flatten structure
+        existingChat._id = existingChat.id;
         res.send(existingChat);
     } else {
         // Create new chat
@@ -90,6 +91,7 @@ const accessChat = asyncHandler(async (req, res) => {
             .single();
 
         fullChat.users = fullChat.users.map(u => ({ ...u.users, _id: u.user_id }));
+        fullChat._id = fullChat.id;
         res.status(200).send(fullChat);
     }
 });
