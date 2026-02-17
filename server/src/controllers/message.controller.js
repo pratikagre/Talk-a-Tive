@@ -15,7 +15,7 @@ const allMessages = asyncHandler(async (req, res) => {
         .select(`
             *,
             sender:users(name, pic, email),
-            chat:chats(*)
+            chat:chats!chat_id(*)
         `, { count: 'exact' })
         .eq('chat_id', chatId);
 
@@ -79,7 +79,7 @@ const sendMessage = asyncHandler(async (req, res) => {
         .select(`
             *,
             sender:users(name, pic, email),
-            chat:chats(*)
+            chat:chats!chat_id(*)
         `)
         .single();
 
