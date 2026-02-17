@@ -37,7 +37,7 @@ const registerUser = asyncHandler(async (req, res) => {
             name,
             email,
             password: hashedPassword,
-            pic
+            pic: pic || "https://icon-library.com/images/anonymous-avatar-icon/anonymous-avatar-icon-25.jpg"
         }])
         .select()
         .single();
@@ -45,7 +45,7 @@ const registerUser = asyncHandler(async (req, res) => {
     if (error) {
         console.error(error);
         res.status(400);
-        throw new Error("Failed to create user");
+        throw new Error(error.message); // Send actual Supabase error to frontend
     }
 
     if (user) {
