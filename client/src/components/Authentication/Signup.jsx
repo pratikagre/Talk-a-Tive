@@ -84,7 +84,6 @@ const Signup = () => {
     };
 
     return (
-    return (
         <div className="flex flex-col gap-5">
             <div className="flex flex-col relative">
                 <label className="text-gray-200 text-sm font-semibold mb-2 ml-1">Name</label>
