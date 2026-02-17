@@ -48,7 +48,6 @@ const Login = () => {
     };
 
     return (
-    return (
         <div className="flex flex-col gap-6">
             <div className="flex flex-col relative">
                 <label className="text-gray-200 text-sm font-semibold mb-2 ml-1">Email Address</label>
