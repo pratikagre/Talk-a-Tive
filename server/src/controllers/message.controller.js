@@ -58,58 +58,62 @@ const sendMessage = asyncHandler(async (req, res) => {
     const { content, chatId, fileUrl, fileType } = req.body;
 
     if ((!content && !fileUrl) || !chatId) {
-        console.log("Invalid data passed into request");
-        return res.sendStatus(400);
-    }
+        if ((!content && !fileUrl) || !chatId) {
+            console.log("Invalid data passed into request", req.body);
+            return res.status(400).json({
+                message: "Invalid data passed into request. content or chatId missing.",
+                received: req.body
+            });
+        }
 
-    const newMessage = {
-        sender_id: req.user.id,
-        content: content,
-        chat_id: chatId,
-        file_url: fileUrl,
-        file_type: fileType
-    };
+        const newMessage = {
+            sender_id: req.user.id,
+            content: content,
+            chat_id: chatId,
+            file_url: fileUrl,
+            file_type: fileType
+        };
 
-    const { data: message, error } = await supabase
-        .from('messages')
-        .insert([newMessage])
-        .select(`
+        const { data: message, error } = await supabase
+            .from('messages')
+            .insert([newMessage])
+            .select(`
             *,
             sender:users(name, pic, email),
             chat:chats(*)
         `)
-        .single();
+            .single();
 
-    if (error) {
-        res.status(400);
-        throw new Error(error.message);
-    }
-
-    // Populate chat users for socket.io logic (frontend expects 'chat.users')
-    const { data: chatUsers } = await supabase
-        .from('chat_users')
-        .select('user_id, users(name, pic, email)')
-        .eq('chat_id', chatId);
-
-    const fullMessage = {
-        ...message,
-        _id: message.id,
-        sender: { ...message.sender, _id: message.sender_id },
-        chat: {
-            ...message.chat,
-            _id: message.chat_id,
-            users: chatUsers.map(u => ({ ...u.users, _id: u.user_id }))
+        if (error) {
+            res.status(400);
+            throw new Error(error.message);
         }
-    };
 
-    // Update latest message in chats table (using separate update as trigger logic is complex for now)
-    await supabase
-        .from('chats')
-        .update({ latest_message_id: message.id })
-        .eq('id', chatId);
+        // Populate chat users for socket.io logic (frontend expects 'chat.users')
+        const { data: chatUsers } = await supabase
+            .from('chat_users')
+            .select('user_id, users(name, pic, email)')
+            .eq('chat_id', chatId);
 
-    res.json(fullMessage);
-});
+        const fullMessage = {
+            ...message,
+            _id: message.id,
+            sender: { ...message.sender, _id: message.sender_id },
+            chat: {
+                ...message.chat,
+                _id: message.chat_id,
+                users: chatUsers.map(u => ({ ...u.users, _id: u.user_id }))
+            }
+        };
+
+        // Update latest message in chats table (using separate update as trigger logic is complex for now)
+        await supabase
+            .from('chats')
+            .update({ latest_message_id: message.id })
+            .eq('id', chatId);
+
+        res.json(fullMessage);
+    });
 
 //@description     Delete Message
 //@route           DELETE /api/message/:id
