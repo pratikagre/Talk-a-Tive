@@ -62,14 +62,14 @@ const SingleChat = ({ fetchAgain, setFetchAgain }) => {
                     "/api/message",
                     {
                         content: newMessage,
-                        chatId: selectedChat,
+                        chatId: selectedChat._id,
                     },
                     config
                 );
                 socket.emit("new message", data);
                 setMessages([...messages, data]);
             } catch (error) {
-                alert("Error Occured! Failed to send the Message");
+                alert("Error Occured! Failed to send the Message: " + (error.response?.data?.message || error.message));
             }
         }
     };
